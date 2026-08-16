@@ -4,8 +4,8 @@ import { STATUS_CONFIG } from "./constants";
 export default function Badge({ status, size = "md", showDot = true, customLabel = null }) {
   const config = STATUS_CONFIG[status] || {
     label: status || "Unknown",
-    styles: "bg-slate-100 text-slate-700 border-slate-200",
-    dot: "bg-slate-400",
+    styles: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700",
+    dot: "bg-slate-400 dark:bg-slate-500",
   };
 
   const label = customLabel || config.label;

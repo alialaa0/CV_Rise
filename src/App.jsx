@@ -1,6 +1,10 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { createSubmission } from "./services/submissionService";
 import { subscribeToAuth, logoutAdmin } from "./services/authService";
+import { LanguageProvider } from "./context/LanguageContext";
+import { ThemeProvider } from "./context/ThemeContext";
+import { useLanguage } from "./hooks/useLanguage";
+import { useTheme } from "./hooks/useTheme";
 import AdminLogin from "./Pages/AdminLogin";
 import AdminDashboard from "./Pages/AdminDashboard";
 import AdminCVReview from "./Pages/AdminCVReview";
@@ -100,19 +104,38 @@ const SOFT_SUGGESTIONS = [
   "Problem Solving", "Communication", "Team Leadership", "Critical Thinking", "Time Management", "Adaptability",
 ];
 
-const CANDIDATE_PAGES = [
-  { step: 1, title: "Profile", subtitle: "Personal Information & Professional Summary" },
-  { step: 2, title: "Education & Experience", subtitle: "Academic history, professional roles, and internships" },
-  { step: 3, title: "Skills & Qualifications", subtitle: "Skills, languages, certifications, courses, and achievements" },
-  { step: 4, title: "Projects & Review", subtitle: "Showcase projects and review your complete CV before submitting" },
-];
+export default function Root() {
+  return (
+    <ThemeProvider>
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>
+    </ThemeProvider>
+  );
+}
 
-export default function App() {
+function App() {
+  const { t, language, setLanguage, dir } = useLanguage();
+  const { theme, setTheme } = useTheme();
+
   const [data, setData] = useState(INITIAL_DATA);
   const [step, setStep] = useState(1);
+  const [validationErrors, setValidationErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submissionId, setSubmissionId] = useState("");
+
+  // Track expanded repeatable cards: { "education-0": true, ... }
+  const [expandedCards, setExpandedCards] = useState({
+    "education-0": true,
+    "experience-0": true,
+    "internships-0": true,
+    "courses-0": true,
+    "languages-0": true,
+    "accreditations-0": true,
+    "achievements-0": true,
+    "projects-0": true,
+  });
 
   // Auth State
   const [authState, setAuthState] = useState({
@@ -175,10 +198,10 @@ export default function App() {
   if (isAdminRoute || isAdminLoginRoute) {
     if (authState.loading) {
       return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-6 text-slate-900 dark:text-slate-100">
           <div className="text-center space-y-2.5">
             <div className="w-7 h-7 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mx-auto" />
-            <p className="text-xs text-slate-500 font-medium">Verifying administrator session...</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Verifying administrator session...</p>
           </div>
         </div>
       );
@@ -204,14 +227,14 @@ export default function App() {
       };
 
       return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-slate-900">
-          <div className="max-w-md w-full rounded-2xl border border-rose-200 bg-white p-7 text-center space-y-4 shadow-sm">
-            <div className="w-11 h-11 mx-auto rounded-full bg-rose-50 text-rose-600 flex items-center justify-center text-lg font-bold border border-rose-200">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-6 text-slate-900 dark:text-slate-100">
+          <div className="max-w-md w-full rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-white dark:bg-slate-900 p-7 text-center space-y-4 shadow-sm">
+            <div className="w-11 h-11 mx-auto rounded-full bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center text-lg font-bold border border-rose-200 dark:border-rose-800">
               ✕
             </div>
             <div className="space-y-1">
-              <h2 className="text-base font-bold text-slate-900">Access Denied</h2>
-              <p className="text-xs text-slate-600">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Access Denied</h2>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 Account <strong>{authState.user.email}</strong> is not authorized for the Admin Portal.
               </p>
             </div>
@@ -249,8 +272,8 @@ export default function App() {
   }
 
   // ==========================================
-  // CANDIDATE CV BUILDER (4-PAGE FLOW)
-  // Zero Admin links exposed to candidates
+  // CANDIDATE CV BUILDER (4-PAGE GUIDED WORKSPACE)
+  // Zero Admin references or navigation exposed
   // ==========================================
 
   const updatePersonal = (field, value) => {
@@ -258,6 +281,13 @@ export default function App() {
       ...prev,
       personal: { ...prev.personal, [field]: value },
     }));
+    if (validationErrors[field]) {
+      setValidationErrors((prev) => ({ ...prev, [field]: null }));
+    }
+  };
+
+  const toggleExpandCard = (key) => {
+    setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const updateArrayItem = (section, index, field, value) => {
@@ -276,24 +306,35 @@ export default function App() {
   };
 
   const addArrayItem = (section, template) => {
-    setData((prev) => ({
-      ...prev,
-      [section]: [...prev[section], template],
-    }));
+    setData((prev) => {
+      const currentList = Array.isArray(prev[section]) ? prev[section] : [];
+      const newIndex = currentList.length;
+      setExpandedCards((e) => ({ ...e, [`${section}-${newIndex}`]: true }));
+      return {
+        ...prev,
+        [section]: [...currentList, template],
+      };
+    });
   };
 
   const addSkill = (category, skill) => {
     const clean = skill.trim();
     if (!clean) return;
-    if (data.skills[category].includes(clean)) return;
 
-    setData((prev) => ({
-      ...prev,
-      skills: {
-        ...prev.skills,
-        [category]: [...prev.skills[category], clean],
-      },
-    }));
+    setData((prev) => {
+      const currentList = prev.skills[category] || [];
+      // Normalize casing to prevent duplicate entries like "python" and "Python"
+      const exists = currentList.some((s) => s.toLowerCase() === clean.toLowerCase());
+      if (exists) return prev;
+
+      return {
+        ...prev,
+        skills: {
+          ...prev.skills,
+          [category]: [...currentList, clean],
+        },
+      };
+    });
   };
 
   const removeSkill = (category, skill) => {
@@ -301,19 +342,65 @@ export default function App() {
       ...prev,
       skills: {
         ...prev.skills,
-        [category]: prev.skills[category].filter((item) => item !== skill),
+        [category]: (prev.skills[category] || []).filter(
+          (item) => item.toLowerCase() !== skill.toLowerCase()
+        ),
       },
     }));
   };
 
+  const validateStep = (currentStep) => {
+    const errors = {};
+    if (currentStep === 1) {
+      if (!data.personal.fullName?.trim()) errors.fullName = t("val.required");
+      if (!data.personal.targetTitle?.trim()) errors.targetTitle = t("val.required");
+      if (!data.personal.email?.trim()) {
+        errors.email = t("val.required");
+      } else if (!data.personal.email.includes("@")) {
+        errors.email = t("val.invalidEmail");
+      }
+      if (!data.personal.phone?.trim()) errors.phone = t("val.required");
+    }
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleNextStep = () => {
+    if (!validateStep(step)) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setStep((s) => Math.min(4, s + 1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handlePrevStep = () => {
+    setStep((s) => Math.max(1, s - 1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleJumpToStep = (targetStep) => {
+    if (targetStep < step || validateStep(step)) {
+      setStep(targetStep);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
+
+    if (!validateStep(1)) {
+      setStep(1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
 
     try {
       setSubmitting(true);
       const newId = await createSubmission(data);
       setSubmissionId(newId);
       setSubmitted(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       console.error("Submission failed:", err);
       alert("Something went wrong with submission. Please check your connection and try again.");
@@ -325,35 +412,36 @@ export default function App() {
   // SUCCESS SCREEN
   if (submitted) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-6 text-slate-900">
-        <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-lg p-6 sm:p-8 text-center space-y-4">
-          <div className="w-12 h-12 mx-auto rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl font-bold border border-emerald-200">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 sm:p-6 text-slate-900 dark:text-slate-100">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-6 sm:p-8 text-center space-y-5">
+          <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl font-bold border border-emerald-200 dark:border-emerald-800 shadow-xs">
             ✓
           </div>
 
-          <div className="space-y-1">
-            <h1 className="text-xl font-bold text-slate-950">CV Submitted Successfully!</h1>
-            <p className="text-xs text-slate-600">
-              Thank you, <strong className="text-slate-900">{data.personal.fullName || "Candidate"}</strong>.
-              Your details have been securely recorded for review.
+          <div className="space-y-1.5">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-950 dark:text-white tracking-tight">
+              {t("success.title")}
+            </h1>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              {t("success.message", { name: data.personal.fullName || "Candidate" })}
             </p>
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 font-mono">
-            Submission Reference: <strong>#{submissionId.slice(0, 10)}</strong>
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 font-mono">
+            {t("success.refLabel")}: <strong className="text-slate-950 dark:text-white dir-ltr">#{submissionId.slice(0, 10)}</strong>
           </div>
 
           <div className="pt-2 flex justify-center">
             <Button
               variant="primary"
-              size="sm"
+              size="md"
               onClick={() => {
                 setData(INITIAL_DATA);
                 setStep(1);
                 setSubmitted(false);
               }}
             >
-              Submit Another CV
+              {t("success.another")}
             </Button>
           </div>
         </div>
@@ -361,44 +449,124 @@ export default function App() {
     );
   }
 
+  const CANDIDATE_PAGES = [
+    { step: 1, title: t("step1.title"), subtitle: t("step1.subtitle"), badge: t("step1.badge") },
+    { step: 2, title: t("step2.title"), subtitle: t("step2.subtitle"), badge: t("step2.badge") },
+    { step: 3, title: t("step3.title"), subtitle: t("step3.subtitle"), badge: t("step3.badge") },
+    { step: 4, title: t("step4.title"), subtitle: t("step4.subtitle"), badge: t("step4.badge") },
+  ];
+
   const currentPage = CANDIDATE_PAGES[step - 1];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-xs shadow-2xs">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-2xs">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-16 transition-colors duration-150">
+      {/* 1. TOP NAVBAR */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs shadow-2xs">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+          {/* Logo & Brand */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-2xs shrink-0">
               CV
             </div>
-            <div>
-              <span className="text-sm font-bold text-slate-900 tracking-tight block leading-none">
-                CV Rise
+            <div className="min-w-0">
+              <span className="text-sm font-bold text-slate-950 dark:text-white tracking-tight block leading-none truncate">
+                {t("app.title")}
               </span>
-              <span className="text-xs text-slate-500 font-medium">Candidate CV Builder</span>
+              <span className="text-2xs text-slate-500 dark:text-slate-400 font-medium truncate block">
+                {t("app.candidateSubtitle")}
+              </span>
             </div>
           </div>
 
+          {/* Controls: Step Badge + Language Toggle + Theme Selector */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-              Step {step} of 4
+            {/* Step Progress Pill */}
+            <span className="hidden sm:inline-flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700">
+              {t("app.stepProgress", { current: step, total: 4 })}
             </span>
+
+            {/* Language Switcher */}
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5" role="group" aria-label={t("lang.label")}>
+              <button
+                type="button"
+                onClick={() => setLanguage("en")}
+                className={`px-2 py-1 text-2xs font-bold rounded-md transition cursor-pointer ${
+                  language === "en"
+                    ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="Switch to English"
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage("ar")}
+                className={`px-2 py-1 text-2xs font-bold rounded-md transition cursor-pointer ${
+                  language === "ar"
+                    ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="التحويل إلى العربية"
+              >
+                عربي
+              </button>
+            </div>
+
+            {/* Theme Switcher */}
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5" role="group" aria-label={t("theme.label")}>
+              <button
+                type="button"
+                onClick={() => setTheme("light")}
+                className={`px-2 py-1 text-xs rounded-md transition cursor-pointer ${
+                  theme === "light"
+                    ? "bg-white dark:bg-slate-700 text-amber-600 shadow-2xs font-semibold"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+                title={t("theme.light")}
+              >
+                ☀
+              </button>
+              <button
+                type="button"
+                onClick={() => setTheme("dark")}
+                className={`px-2 py-1 text-xs rounded-md transition cursor-pointer ${
+                  theme === "dark"
+                    ? "bg-white dark:bg-slate-700 text-blue-400 shadow-2xs font-semibold"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+                title={t("theme.dark")}
+              >
+                🌙
+              </button>
+              <button
+                type="button"
+                onClick={() => setTheme("system")}
+                className={`hidden md:inline-block px-2 py-1 text-2xs rounded-md transition cursor-pointer ${
+                  theme === "system"
+                    ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs font-semibold"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+                title={t("theme.system")}
+              >
+                💻
+              </button>
+            </div>
           </div>
         </div>
 
         {/* 4-Step Progress Bar */}
-        <div className="h-1 bg-slate-100 w-full overflow-hidden">
+        <div className="h-1 bg-slate-100 dark:bg-slate-800 w-full overflow-hidden">
           <div
-            className="h-full bg-blue-600 transition-all duration-300 ease-out"
+            className="h-full bg-blue-600 dark:bg-blue-500 transition-all duration-300 ease-out"
             style={{ width: `${(step / 4) * 100}%` }}
           />
         </div>
       </header>
 
-      {/* Main 4-Page Form */}
+      {/* 2. MAIN GUIDED WORKSPACE CONTAINER */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-6">
-        {/* Step Indicator Header (Desktop) */}
+        {/* Desktop 4-Step Interactive Progress Stepper */}
         <div className="hidden sm:grid grid-cols-4 gap-2.5 mb-6">
           {CANDIDATE_PAGES.map((p) => {
             const isCurrent = p.step === step;
@@ -407,179 +575,199 @@ export default function App() {
               <button
                 key={p.step}
                 type="button"
-                onClick={() => setStep(p.step)}
-                className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                onClick={() => handleJumpToStep(p.step)}
+                className={`p-3 rounded-xl border text-left rtl:text-right transition cursor-pointer ${
                   isCurrent
-                    ? "bg-white border-blue-600 shadow-xs ring-1 ring-blue-100"
+                    ? "bg-white dark:bg-slate-900 border-blue-600 dark:border-blue-500 shadow-xs ring-1 ring-blue-100 dark:ring-blue-900/40"
                     : isCompleted
-                    ? "bg-slate-100/80 border-slate-200 text-slate-700 hover:bg-slate-100"
-                    : "bg-white/50 border-slate-200 text-slate-400 hover:bg-white"
+                    ? "bg-slate-100/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    : "bg-white/50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 hover:bg-white dark:hover:bg-slate-900"
                 }`}
               >
-                <div className="text-2xs font-bold uppercase tracking-wider text-slate-400">
-                  Step {p.step}
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    {p.badge}
+                  </span>
+                  {isCompleted && (
+                    <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 text-3xs font-bold flex items-center justify-center">
+                      ✓
+                    </span>
+                  )}
                 </div>
-                <div className="text-xs font-bold truncate text-slate-900">{p.title}</div>
+                <div className="text-xs font-bold truncate text-slate-900 dark:text-white">{p.title}</div>
               </button>
             );
           })}
         </div>
 
+        {/* Form Container */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 shadow-xs space-y-6">
-            {/* Page Title & Subtitle */}
-            <div className="pb-4 border-b border-slate-100 space-y-1">
-              <div className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                Step {step} of 4 — {currentPage.title}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-7 shadow-xs space-y-6">
+            {/* Page Header */}
+            <div className="pb-4 border-b border-slate-100 dark:border-slate-800 space-y-1">
+              <div className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                {currentPage.badge} — {currentPage.title}
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-950">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
                 {currentPage.title}
               </h1>
-              <p className="text-sm text-slate-500 leading-normal">{currentPage.subtitle}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 leading-normal">{currentPage.subtitle}</p>
             </div>
 
             {/* ========================================================= */}
-            {/* PAGE 1: PROFILE (Personal Info + Summary + Inline Review) */}
+            {/* PAGE 1: PROFILE */}
             {/* ========================================================= */}
             {step === 1 && (
               <div className="space-y-7">
-                {/* 1.1 Personal Information */}
+                {/* Personal Information */}
                 <div className="space-y-4">
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 pb-1.5 border-b border-slate-100">
-                    Personal Information
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                    {t("step1.personalHeader")}
                   </h2>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <TextInput
-                      label="Full Name"
+                      label={t("step1.fullName")}
                       value={data.personal.fullName}
                       onChange={(v) => updatePersonal("fullName", v)}
-                      placeholder="Sarah Jenkins"
+                      placeholder={t("step1.fullNamePlaceholder")}
+                      error={validationErrors.fullName}
                       required
                     />
                     <TextInput
-                      label="Target Position"
+                      label={t("step1.targetTitle")}
                       value={data.personal.targetTitle}
                       onChange={(v) => updatePersonal("targetTitle", v)}
-                      placeholder="Senior Data Analyst"
+                      placeholder={t("step1.targetTitlePlaceholder")}
+                      error={validationErrors.targetTitle}
                       required
                     />
                     <TextInput
-                      label="Email Address"
+                      label={t("step1.email")}
                       type="email"
+                      dir="ltr"
                       value={data.personal.email}
                       onChange={(v) => updatePersonal("email", v)}
-                      placeholder="sarah@example.com"
+                      placeholder={t("step1.emailPlaceholder")}
+                      error={validationErrors.email}
                       required
                     />
                     <TextInput
-                      label="Phone Number"
+                      label={t("step1.phone")}
                       type="tel"
+                      dir="ltr"
                       value={data.personal.phone}
                       onChange={(v) => updatePersonal("phone", v)}
-                      placeholder="+1 555 0192"
+                      placeholder={t("step1.phonePlaceholder")}
+                      error={validationErrors.phone}
                       required
                     />
                     <TextInput
-                      label="Location / City"
+                      label={t("step1.location")}
                       value={data.personal.location}
                       onChange={(v) => updatePersonal("location", v)}
-                      placeholder="Cairo, Egypt"
+                      placeholder={t("step1.locationPlaceholder")}
                     />
                     <TextInput
-                      label="LinkedIn Profile URL"
+                      label={t("step1.linkedin")}
+                      dir="ltr"
                       value={data.personal.linkedin}
                       onChange={(v) => updatePersonal("linkedin", v)}
-                      placeholder="linkedin.com/in/username"
+                      placeholder={t("step1.linkedinPlaceholder")}
                     />
                     <TextInput
-                      label="Portfolio / GitHub URL"
+                      label={t("step1.portfolio")}
+                      dir="ltr"
                       value={data.personal.portfolio}
                       onChange={(v) => updatePersonal("portfolio", v)}
-                      placeholder="github.com/username"
+                      placeholder={t("step1.portfolioPlaceholder")}
                       className="sm:col-span-2"
                     />
                   </div>
                 </div>
 
-                {/* 1.2 Professional Summary */}
+                {/* Professional Summary */}
                 <div className="space-y-3 pt-1">
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 pb-1.5 border-b border-slate-100">
-                    Professional Summary
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                    {t("step1.summaryHeader")}
                   </h2>
                   <TextArea
-                    label="Career Objective & Summary"
+                    label={t("step1.summary")}
                     value={data.personal.summary}
                     onChange={(v) => updatePersonal("summary", v)}
-                    placeholder="Briefly describe your career background, core competencies, and career objective..."
+                    placeholder={t("step1.summaryPlaceholder")}
+                    hint={t("step1.summaryHint")}
                     rows={4}
                   />
                 </div>
 
-                {/* 1.3 INLINE REVIEW: Profile Review */}
-                <InlineReviewSection title="Profile Review" subtitle="Live summary of your entered personal details.">
-                  <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                {/* INLINE REVIEW: Profile Review */}
+                <InlineReviewSection
+                  title={t("step1.reviewTitle")}
+                  subtitle={t("step1.reviewSubtitle")}
+                >
+                  <div className="grid gap-3.5 sm:grid-cols-2 text-sm">
                     <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Full Name
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.fullName")}
                       </span>
-                      <p className="font-semibold text-slate-900">
-                        {data.personal.fullName || <span className="text-slate-400 font-normal italic">Not entered yet</span>}
+                      <p className="font-semibold text-slate-900 dark:text-white">
+                        {data.personal.fullName || <span className="text-slate-400 dark:text-slate-500 font-normal italic">{t("action.notEntered")}</span>}
                       </p>
                     </div>
 
                     <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Target Position
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.targetTitle")}
                       </span>
-                      <p className="font-semibold text-slate-900">
-                        {data.personal.targetTitle || <span className="text-slate-400 font-normal italic">Not entered yet</span>}
+                      <p className="font-semibold text-slate-900 dark:text-white">
+                        {data.personal.targetTitle || <span className="text-slate-400 dark:text-slate-500 font-normal italic">{t("action.notEntered")}</span>}
                       </p>
                     </div>
 
                     <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Email Address
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.email")}
                       </span>
-                      <p className="text-slate-700">
-                        {data.personal.email || <span className="text-slate-400 italic">Not entered yet</span>}
+                      <p className="text-slate-700 dark:text-slate-300 dir-ltr text-left rtl:text-right">
+                        {data.personal.email || <span className="text-slate-400 dark:text-slate-500 italic">{t("action.notEntered")}</span>}
                       </p>
                     </div>
 
                     <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Phone Number
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.phone")}
                       </span>
-                      <p className="text-slate-700">
-                        {data.personal.phone || <span className="text-slate-400 italic">Not entered yet</span>}
+                      <p className="text-slate-700 dark:text-slate-300 dir-ltr text-left rtl:text-right">
+                        {data.personal.phone || <span className="text-slate-400 dark:text-slate-500 italic">{t("action.notEntered")}</span>}
                       </p>
                     </div>
 
                     <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Location
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.location")}
                       </span>
-                      <p className="text-slate-700">
-                        {data.personal.location || <span className="text-slate-400 italic">Not entered yet</span>}
+                      <p className="text-slate-700 dark:text-slate-300">
+                        {data.personal.location || <span className="text-slate-400 dark:text-slate-500 italic">{t("action.notEntered")}</span>}
                       </p>
                     </div>
 
                     <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Links
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.linkedin")} / {t("step1.portfolio")}
                       </span>
-                      <p className="text-slate-700 truncate">
+                      <p className="text-slate-700 dark:text-slate-300 dir-ltr truncate text-left rtl:text-right">
                         {[data.personal.linkedin, data.personal.portfolio].filter(Boolean).join("  •  ") || (
-                          <span className="text-slate-400 italic">No links added</span>
+                          <span className="text-slate-400 dark:text-slate-500 italic">{t("step1.noLinks")}</span>
                         )}
                       </p>
                     </div>
 
-                    <div className="sm:col-span-2 space-y-0.5 pt-1 border-t border-slate-100">
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        Professional Summary
+                    <div className="sm:col-span-2 space-y-0.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                        {t("step1.summary")}
                       </span>
-                      <p className="text-slate-700 leading-relaxed whitespace-pre-line text-xs sm:text-sm">
-                        {data.personal.summary || <span className="text-slate-400 italic">No summary entered yet.</span>}
+                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line text-xs sm:text-sm">
+                        {data.personal.summary || <span className="text-slate-400 dark:text-slate-500 italic">{t("step1.noSummary")}</span>}
                       </p>
                     </div>
                   </div>
@@ -588,15 +776,18 @@ export default function App() {
             )}
 
             {/* ========================================================= */}
-            {/* PAGE 2: EDUCATION & EXPERIENCE (+ Inline Review) */}
+            {/* PAGE 2: EDUCATION & EXPERIENCE */}
             {/* ========================================================= */}
             {step === 2 && (
               <div className="space-y-7">
-                {/* 2.1 Education */}
-                <RepeatableSection
-                  title="Education"
-                  description="Add university degrees, diplomas, or academic qualifications."
+                {/* Education */}
+                <ExpandableRepeatableSection
+                  title={t("edu.title")}
+                  description={t("edu.description")}
+                  sectionKey="education"
                   items={data.education}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("education", {
                       degree: "Bachelor's Degree",
@@ -608,40 +799,54 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("education", i)}
-                  addButtonLabel="Add Degree / Qualification"
+                  addButtonLabel={t("edu.add")}
+                  emptyMessage={t("edu.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <div>
+                        <strong className="text-slate-900 dark:text-white">
+                          {item.degree} {item.fieldOfStudy ? `in ${item.fieldOfStudy}` : ""}
+                        </strong>
+                        {item.institution && <span className="text-slate-600 dark:text-slate-400"> — {item.institution}</span>}
+                      </div>
+                      <span className="text-slate-400 dark:text-slate-500 dir-ltr">
+                        {[item.startDate, item.endDate].filter(Boolean).join(" – ") || "—"}
+                      </span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <SelectInput
-                        label="Degree"
+                        label={t("edu.degree")}
                         value={item.degree}
                         options={DEGREE_OPTIONS}
                         onChange={(v) => updateArrayItem("education", idx, "degree", v)}
                       />
                       <SelectInput
-                        label="Field of Study"
+                        label={t("edu.fieldOfStudy")}
                         value={item.fieldOfStudy}
                         options={STUDY_FIELDS}
                         onChange={(v) => updateArrayItem("education", idx, "fieldOfStudy", v)}
                       />
                       <TextInput
-                        label="University / Institution"
+                        label={t("edu.institution")}
                         value={item.institution}
                         onChange={(v) => updateArrayItem("education", idx, "institution", v)}
-                        placeholder="Cairo University"
+                        placeholder={t("edu.institutionPlaceholder")}
                       />
                       <TextInput
-                        label="Grade / GPA (Optional)"
+                        label={t("edu.grade")}
                         value={item.grade}
                         onChange={(v) => updateArrayItem("education", idx, "grade", v)}
-                        placeholder="3.8 / 4.0"
+                        placeholder={t("edu.gradePlaceholder")}
                       />
                       <MonthYearPicker
-                        label="Start Date"
+                        label={t("edu.startDate")}
                         value={item.startDate}
                         onChange={(v) => updateArrayItem("education", idx, "startDate", v)}
                       />
                       <MonthYearPicker
-                        label="End Date"
+                        label={t("edu.endDate")}
                         value={item.endDate}
                         onChange={(v) => updateArrayItem("education", idx, "endDate", v)}
                       />
@@ -649,11 +854,14 @@ export default function App() {
                   )}
                 />
 
-                {/* 2.2 Work Experience */}
-                <RepeatableSection
-                  title="Work Experience"
-                  description="Add professional work history and career milestones."
+                {/* Work Experience */}
+                <ExpandableRepeatableSection
+                  title={t("exp.title")}
+                  description={t("exp.description")}
+                  sectionKey="experience"
                   items={data.experience}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("experience", {
                       jobTitle: "",
@@ -668,65 +876,77 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("experience", i)}
-                  addButtonLabel="Add Work Experience"
+                  addButtonLabel={t("exp.add")}
+                  emptyMessage={t("exp.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <div>
+                        <strong className="text-slate-900 dark:text-white">{item.jobTitle || "Role"}</strong>
+                        {item.company && <span className="text-slate-600 dark:text-slate-400"> at {item.company}</span>}
+                      </div>
+                      <span className="text-slate-400 dark:text-slate-500 dir-ltr">
+                        {[item.startDate, item.current ? "Present" : item.endDate].filter(Boolean).join(" – ") || "—"}
+                      </span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Job Title"
+                        label={t("exp.jobTitle")}
                         value={item.jobTitle}
                         onChange={(v) => updateArrayItem("experience", idx, "jobTitle", v)}
-                        placeholder="Data Analyst"
+                        placeholder={t("exp.jobTitlePlaceholder")}
                       />
                       <TextInput
-                        label="Company Name"
+                        label={t("exp.company")}
                         value={item.company}
                         onChange={(v) => updateArrayItem("experience", idx, "company", v)}
-                        placeholder="Acme Corp"
+                        placeholder={t("exp.companyPlaceholder")}
                       />
                       <SelectInput
-                        label="Employment Type"
+                        label={t("exp.employmentType")}
                         value={item.employmentType}
                         options={EMPLOYMENT_TYPES}
                         onChange={(v) => updateArrayItem("experience", idx, "employmentType", v)}
                       />
                       <TextInput
-                        label="Location"
+                        label={t("exp.location")}
                         value={item.location}
                         onChange={(v) => updateArrayItem("experience", idx, "location", v)}
-                        placeholder="Cairo, Egypt"
+                        placeholder={t("exp.locationPlaceholder")}
                       />
                       <MonthYearPicker
-                        label="Start Date"
+                        label={t("exp.startDate")}
                         value={item.startDate}
                         onChange={(v) => updateArrayItem("experience", idx, "startDate", v)}
                       />
                       {!item.current && (
                         <MonthYearPicker
-                          label="End Date"
+                          label={t("exp.endDate")}
                           value={item.endDate}
                           onChange={(v) => updateArrayItem("experience", idx, "endDate", v)}
                         />
                       )}
                       <div className="sm:col-span-2 pt-0.5">
                         <CheckboxToggle
-                          label="I currently work in this role"
+                          label={t("exp.current")}
                           checked={item.current}
                           onChange={(v) => updateArrayItem("experience", idx, "current", v)}
                         />
                       </div>
                       <TextArea
-                        label="Key Responsibilities"
+                        label={t("exp.responsibilities")}
                         value={item.responsibilities}
                         onChange={(v) => updateArrayItem("experience", idx, "responsibilities", v)}
-                        placeholder="Detail day-to-day responsibilities..."
+                        placeholder={t("exp.responsibilitiesPlaceholder")}
                         rows={3}
                         className="sm:col-span-2"
                       />
                       <TextArea
-                        label="Key Achievements & Metrics"
+                        label={t("exp.achievements")}
                         value={item.achievements}
                         onChange={(v) => updateArrayItem("experience", idx, "achievements", v)}
-                        placeholder="e.g. Reduced query latency by 40%..."
+                        placeholder={t("exp.achievementsPlaceholder")}
                         rows={2}
                         className="sm:col-span-2"
                       />
@@ -734,11 +954,14 @@ export default function App() {
                   )}
                 />
 
-                {/* 2.3 Internships */}
-                <RepeatableSection
-                  title="Internships"
-                  description="Add student internships, apprenticeships, or practical training programs."
+                {/* Internships */}
+                <ExpandableRepeatableSection
+                  title={t("intern.title")}
+                  description={t("intern.description")}
+                  sectionKey="internships"
                   items={data.internships}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("internships", {
                       title: "",
@@ -750,43 +973,55 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("internships", i)}
-                  addButtonLabel="Add Internship"
+                  addButtonLabel={t("intern.add")}
+                  emptyMessage={t("intern.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <div>
+                        <strong className="text-slate-900 dark:text-white">{item.title || "Internship"}</strong>
+                        {item.company && <span className="text-slate-600 dark:text-slate-400"> — {item.company}</span>}
+                      </div>
+                      <span className="text-slate-400 dark:text-slate-500 dir-ltr">
+                        {[item.startDate, item.endDate].filter(Boolean).join(" – ") || "—"}
+                      </span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Internship Title"
+                        label={t("intern.titleLabel")}
                         value={item.title}
                         onChange={(v) => updateArrayItem("internships", idx, "title", v)}
-                        placeholder="Business Analyst Intern"
+                        placeholder={t("intern.titlePlaceholder")}
                       />
                       <TextInput
-                        label="Organization / Company"
+                        label={t("intern.company")}
                         value={item.company}
                         onChange={(v) => updateArrayItem("internships", idx, "company", v)}
-                        placeholder="Vodafone"
+                        placeholder={t("intern.companyPlaceholder")}
                       />
                       <TextInput
-                        label="Location"
+                        label={t("intern.location")}
                         value={item.location}
                         onChange={(v) => updateArrayItem("internships", idx, "location", v)}
-                        placeholder="Cairo / Remote"
+                        placeholder={t("intern.locationPlaceholder")}
                       />
                       <div className="hidden sm:block" />
                       <MonthYearPicker
-                        label="Start Date"
+                        label={t("intern.startDate")}
                         value={item.startDate}
                         onChange={(v) => updateArrayItem("internships", idx, "startDate", v)}
                       />
                       <MonthYearPicker
-                        label="End Date"
+                        label={t("intern.endDate")}
                         value={item.endDate}
                         onChange={(v) => updateArrayItem("internships", idx, "endDate", v)}
                       />
                       <TextArea
-                        label="Description & Projects"
+                        label={t("intern.descriptionLabel")}
                         value={item.description}
                         onChange={(v) => updateArrayItem("internships", idx, "description", v)}
-                        placeholder="Key contributions and learnings..."
+                        placeholder={t("intern.descriptionPlaceholder")}
                         rows={2}
                         className="sm:col-span-2"
                       />
@@ -794,27 +1029,29 @@ export default function App() {
                   )}
                 />
 
-                {/* 2.4 INLINE REVIEW: Education & Experience Review */}
+                {/* INLINE REVIEW: Education & Experience Review */}
                 <InlineReviewSection
-                  title="Education & Experience Review"
-                  subtitle="Live summary of your academic history and professional timeline."
+                  title={t("step2.reviewTitle")}
+                  subtitle={t("step2.reviewSubtitle")}
                 >
                   <div className="space-y-4 text-sm">
-                    {/* Education summary */}
+                    {/* Education Summary */}
                     <div className="space-y-1.5">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                        Education ({data.education.length})
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        {t("edu.title")} ({data.education.length})
                       </span>
                       {data.education.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No education entries added yet.</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic">{t("edu.noEntries")}</p>
                       ) : (
                         <div className="space-y-1.5">
                           {data.education.map((e, idx) => (
-                            <div key={idx} className="p-2 rounded-lg bg-white border border-slate-200 text-xs">
-                              <strong className="text-slate-900">{e.degree} in {e.fieldOfStudy || "General"}</strong>
-                              {e.institution && <span className="text-slate-600"> — {e.institution}</span>}
+                            <div key={idx} className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                              <strong className="text-slate-900 dark:text-white">{e.degree} in {e.fieldOfStudy || "General"}</strong>
+                              {e.institution && <span className="text-slate-600 dark:text-slate-400"> — {e.institution}</span>}
                               {(e.startDate || e.endDate) && (
-                                <span className="text-slate-400 ml-1">({[e.startDate, e.endDate].filter(Boolean).join(" – ")})</span>
+                                <span className="text-slate-400 dark:text-slate-500 ml-1 dir-ltr">
+                                  ({[e.startDate, e.endDate].filter(Boolean).join(" – ")})
+                                </span>
                               )}
                             </div>
                           ))}
@@ -822,21 +1059,21 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Experience summary */}
-                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                        Work Experience ({data.experience.length})
+                    {/* Experience Summary */}
+                    <div className="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        {t("exp.title")} ({data.experience.length})
                       </span>
                       {data.experience.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No work experience entries added yet.</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic">{t("exp.noEntries")}</p>
                       ) : (
                         <div className="space-y-1.5">
                           {data.experience.map((exp, idx) => (
-                            <div key={idx} className="p-2 rounded-lg bg-white border border-slate-200 text-xs">
-                              <strong className="text-slate-900">{exp.jobTitle || "Job Title"}</strong>
-                              {exp.company && <span className="text-slate-600"> at {exp.company}</span>}
+                            <div key={idx} className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                              <strong className="text-slate-900 dark:text-white">{exp.jobTitle || "Job Title"}</strong>
+                              {exp.company && <span className="text-slate-600 dark:text-slate-400"> at {exp.company}</span>}
                               {(exp.startDate || exp.endDate || exp.current) && (
-                                <span className="text-slate-400 ml-1">
+                                <span className="text-slate-400 dark:text-slate-500 ml-1 dir-ltr">
                                   ({[exp.startDate, exp.current ? "Present" : exp.endDate].filter(Boolean).join(" – ")})
                                 </span>
                               )}
@@ -846,21 +1083,21 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Internships summary */}
-                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                        Internships ({data.internships.length})
+                    {/* Internships Summary */}
+                    <div className="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        {t("intern.title")} ({data.internships.length})
                       </span>
                       {data.internships.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No internships listed.</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic">{t("intern.noEntries")}</p>
                       ) : (
                         <div className="space-y-1.5">
                           {data.internships.map((item, idx) => (
-                            <div key={idx} className="p-2 rounded-lg bg-white border border-slate-200 text-xs">
-                              <strong className="text-slate-900">{item.title || "Internship"}</strong>
-                              {item.company && <span className="text-slate-600"> — {item.company}</span>}
+                            <div key={idx} className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                              <strong className="text-slate-900 dark:text-white">{item.title || "Internship"}</strong>
+                              {item.company && <span className="text-slate-600 dark:text-slate-400"> — {item.company}</span>}
                               {(item.startDate || item.endDate) && (
-                                <span className="text-slate-400 ml-1">
+                                <span className="text-slate-400 dark:text-slate-500 ml-1 dir-ltr">
                                   ({[item.startDate, item.endDate].filter(Boolean).join(" – ")})
                                 </span>
                               )}
@@ -875,50 +1112,71 @@ export default function App() {
             )}
 
             {/* ========================================================= */}
-            {/* PAGE 3: SKILLS & QUALIFICATIONS (+ Inline Review) */}
+            {/* PAGE 3: SKILLS & QUALIFICATIONS */}
             {/* ========================================================= */}
             {step === 3 && (
               <div className="space-y-7">
-                {/* 3.1 Skills Group */}
+                {/* Skills Group */}
                 <div className="space-y-4">
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 pb-1.5 border-b border-slate-100">
-                    Skills & Competencies
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                    {t("skills.sectionHeader")}
                   </h2>
                   <div className="space-y-4">
                     <SkillManager
-                      title="Technical Skills"
+                      title={t("skills.technical")}
                       category="technical"
                       skills={data.skills.technical}
                       suggestions={TECH_SUGGESTIONS}
                       onAdd={addSkill}
                       onRemove={removeSkill}
+                      placeholder={t("skills.searchPlaceholder")}
+                      addLabel={t("skills.addBtn")}
+                      activeLabel={t("skills.activeLabel")}
+                      suggestionsLabel={t("skills.suggestionsLabel")}
+                      countLabel={t("skills.selectedCount", { count: data.skills.technical.length })}
+                      emptyHelper={t("skills.noSkillsSelected")}
                     />
 
                     <SkillManager
-                      title="Tools & Technologies"
+                      title={t("skills.tools")}
                       category="tools"
                       skills={data.skills.tools}
                       suggestions={TOOL_SUGGESTIONS}
                       onAdd={addSkill}
                       onRemove={removeSkill}
+                      placeholder={t("skills.searchPlaceholder")}
+                      addLabel={t("skills.addBtn")}
+                      activeLabel={t("skills.activeLabel")}
+                      suggestionsLabel={t("skills.suggestionsLabel")}
+                      countLabel={t("skills.selectedCount", { count: data.skills.tools.length })}
+                      emptyHelper={t("skills.noSkillsSelected")}
                     />
 
                     <SkillManager
-                      title="Professional & Soft Skills"
+                      title={t("skills.soft")}
                       category="soft"
                       skills={data.skills.soft}
                       suggestions={SOFT_SUGGESTIONS}
                       onAdd={addSkill}
                       onRemove={removeSkill}
+                      placeholder={t("skills.searchPlaceholder")}
+                      addLabel={t("skills.addBtn")}
+                      activeLabel={t("skills.activeLabel")}
+                      suggestionsLabel={t("skills.suggestionsLabel")}
+                      countLabel={t("skills.selectedCount", { count: data.skills.soft.length })}
+                      emptyHelper={t("skills.noSkillsSelected")}
                     />
                   </div>
                 </div>
 
-                {/* 3.2 Languages */}
-                <RepeatableSection
-                  title="Languages"
-                  description="List languages and your professional fluency level."
+                {/* Languages */}
+                <ExpandableRepeatableSection
+                  title={t("langSec.title")}
+                  description={t("langSec.description")}
+                  sectionKey="languages"
                   items={data.languages}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("languages", {
                       language: "",
@@ -926,17 +1184,24 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("languages", i)}
-                  addButtonLabel="Add Language"
+                  addButtonLabel={t("langSec.add")}
+                  emptyMessage={t("langSec.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex items-center justify-between text-xs sm:text-sm">
+                      <strong className="text-slate-900 dark:text-white">{item.language || "Language"}</strong>
+                      <span className="text-slate-500 dark:text-slate-400">{item.level}</span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Language"
+                        label={t("langSec.language")}
                         value={item.language}
                         onChange={(v) => updateArrayItem("languages", idx, "language", v)}
-                        placeholder="English"
+                        placeholder={t("langSec.languagePlaceholder")}
                       />
                       <SelectInput
-                        label="Proficiency Level"
+                        label={t("langSec.level")}
                         value={item.level}
                         options={LANGUAGE_LEVELS}
                         onChange={(v) => updateArrayItem("languages", idx, "level", v)}
@@ -945,11 +1210,14 @@ export default function App() {
                   )}
                 />
 
-                {/* 3.3 Courses & Training */}
-                <RepeatableSection
-                  title="Courses & Training"
-                  description="Add completed bootcamps, workshops, and certified online courses."
+                {/* Courses & Training */}
+                <ExpandableRepeatableSection
+                  title={t("courses.title")}
+                  description={t("courses.description")}
+                  sectionKey="courses"
                   items={data.courses}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("courses", {
                       name: "",
@@ -959,41 +1227,55 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("courses", i)}
-                  addButtonLabel="Add Course"
+                  addButtonLabel={t("courses.add")}
+                  emptyMessage={t("courses.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <div>
+                        <strong className="text-slate-900 dark:text-white">{item.name || "Course"}</strong>
+                        {item.provider && <span className="text-slate-600 dark:text-slate-400"> — {item.provider}</span>}
+                      </div>
+                      <span className="text-slate-400 dark:text-slate-500 dir-ltr">{item.date || "—"}</span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Course / Program Name"
+                        label={t("courses.name")}
                         value={item.name}
                         onChange={(v) => updateArrayItem("courses", idx, "name", v)}
-                        placeholder="Data Engineering Bootcamp"
+                        placeholder={t("courses.namePlaceholder")}
                       />
                       <TextInput
-                        label="Provider / Institution"
+                        label={t("courses.provider")}
                         value={item.provider}
                         onChange={(v) => updateArrayItem("courses", idx, "provider", v)}
-                        placeholder="Coursera / IBM"
+                        placeholder={t("courses.providerPlaceholder")}
                       />
                       <MonthYearPicker
-                        label="Completion Date"
+                        label={t("courses.date")}
                         value={item.date}
                         onChange={(v) => updateArrayItem("courses", idx, "date", v)}
                       />
                       <TextInput
-                        label="Certificate ID / URL"
+                        label={t("courses.certId")}
+                        dir="ltr"
                         value={item.certificateId}
                         onChange={(v) => updateArrayItem("courses", idx, "certificateId", v)}
-                        placeholder="Optional"
+                        placeholder={t("courses.certIdPlaceholder")}
                       />
                     </div>
                   )}
                 />
 
-                {/* 3.4 Certifications & Accreditations */}
-                <RepeatableSection
-                  title="Certifications & Accreditations"
-                  description="Add industry-recognized professional certifications and credentials."
+                {/* Certifications */}
+                <ExpandableRepeatableSection
+                  title={t("certs.title")}
+                  description={t("certs.description")}
+                  sectionKey="accreditations"
                   items={data.accreditations}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("accreditations", {
                       name: "",
@@ -1003,41 +1285,55 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("accreditations", i)}
-                  addButtonLabel="Add Certification"
+                  addButtonLabel={t("certs.add")}
+                  emptyMessage={t("certs.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <div>
+                        <strong className="text-slate-900 dark:text-white">{item.name || "Certification"}</strong>
+                        {item.issuer && <span className="text-slate-600 dark:text-slate-400"> — {item.issuer}</span>}
+                      </div>
+                      <span className="text-slate-400 dark:text-slate-500 dir-ltr">{item.date || "—"}</span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Certification Title"
+                        label={t("certs.name")}
                         value={item.name}
                         onChange={(v) => updateArrayItem("accreditations", idx, "name", v)}
-                        placeholder="AWS Solutions Architect"
+                        placeholder={t("certs.namePlaceholder")}
                       />
                       <TextInput
-                        label="Issuing Organization"
+                        label={t("certs.issuer")}
                         value={item.issuer}
                         onChange={(v) => updateArrayItem("accreditations", idx, "issuer", v)}
-                        placeholder="Amazon Web Services"
+                        placeholder={t("certs.issuerPlaceholder")}
                       />
                       <MonthYearPicker
-                        label="Issue Date"
+                        label={t("certs.date")}
                         value={item.date}
                         onChange={(v) => updateArrayItem("accreditations", idx, "date", v)}
                       />
                       <TextInput
-                        label="Credential ID"
+                        label={t("certs.credentialId")}
+                        dir="ltr"
                         value={item.credentialId}
                         onChange={(v) => updateArrayItem("accreditations", idx, "credentialId", v)}
-                        placeholder="Optional ID"
+                        placeholder={t("certs.credentialIdPlaceholder")}
                       />
                     </div>
                   )}
                 />
 
-                {/* 3.5 Achievements */}
-                <RepeatableSection
-                  title="Achievements & Honors"
-                  description="Highlight competitions, hackathons, academic honors, or notable awards."
+                {/* Achievements */}
+                <ExpandableRepeatableSection
+                  title={t("achieve.title")}
+                  description={t("achieve.description")}
+                  sectionKey="achievements"
                   items={data.achievements}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("achievements", {
                       title: "",
@@ -1046,25 +1342,32 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("achievements", i)}
-                  addButtonLabel="Add Achievement"
+                  addButtonLabel={t("achieve.add")}
+                  emptyMessage={t("achieve.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <strong className="text-slate-900 dark:text-white">{item.title || "Achievement"}</strong>
+                      <span className="text-slate-400 dark:text-slate-500 dir-ltr">{item.date || "—"}</span>
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Award / Achievement Title"
+                        label={t("achieve.titleLabel")}
                         value={item.title}
                         onChange={(v) => updateArrayItem("achievements", idx, "title", v)}
-                        placeholder="1st Place FinTech Hackathon"
+                        placeholder={t("achieve.titlePlaceholder")}
                       />
                       <MonthYearPicker
-                        label="Date"
+                        label={t("achieve.date")}
                         value={item.date}
                         onChange={(v) => updateArrayItem("achievements", idx, "date", v)}
                       />
                       <TextArea
-                        label="Description"
+                        label={t("achieve.descriptionLabel")}
                         value={item.description}
                         onChange={(v) => updateArrayItem("achievements", idx, "description", v)}
-                        placeholder="Briefly describe the context and achievement..."
+                        placeholder={t("achieve.descriptionPlaceholder")}
                         rows={2}
                         className="sm:col-span-2"
                       />
@@ -1072,26 +1375,28 @@ export default function App() {
                   )}
                 />
 
-                {/* 3.6 INLINE REVIEW: Skills & Qualifications Review */}
+                {/* INLINE REVIEW: Skills & Qualifications Review */}
                 <InlineReviewSection
-                  title="Skills & Qualifications Review"
-                  subtitle="Live summary of your competencies, certifications, and languages."
+                  title={t("step3.reviewTitle")}
+                  subtitle={t("step3.reviewSubtitle")}
                 >
                   <div className="space-y-4 text-sm">
                     {/* Skills Summary */}
                     <div className="space-y-2">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                        Selected Skills
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        {t("skills.sectionHeader")}
                       </span>
                       <div className="grid gap-2 sm:grid-cols-3">
-                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
-                          <span className="text-2xs font-bold text-slate-400 uppercase block">Technical</span>
+                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
+                          <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase block">
+                            {t("skills.technical")}
+                          </span>
                           <div className="flex flex-wrap gap-1">
                             {data.skills.technical.length === 0 ? (
-                              <span className="text-xs text-slate-400 italic">None added</span>
+                              <span className="text-xs text-slate-400 dark:text-slate-500 italic">None</span>
                             ) : (
                               data.skills.technical.map((s, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-blue-50 text-blue-800 font-medium border border-blue-100">
+                                <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 font-medium border border-blue-100 dark:border-blue-800/60 dir-ltr">
                                   {s}
                                 </span>
                               ))
@@ -1099,14 +1404,16 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
-                          <span className="text-2xs font-bold text-slate-400 uppercase block">Tools</span>
+                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
+                          <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase block">
+                            {t("skills.tools")}
+                          </span>
                           <div className="flex flex-wrap gap-1">
                             {data.skills.tools.length === 0 ? (
-                              <span className="text-xs text-slate-400 italic">None added</span>
+                              <span className="text-xs text-slate-400 dark:text-slate-500 italic">None</span>
                             ) : (
                               data.skills.tools.map((s, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-slate-100 text-slate-800 font-medium border border-slate-200">
+                                <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium border border-slate-200 dark:border-slate-600 dir-ltr">
                                   {s}
                                 </span>
                               ))
@@ -1114,14 +1421,16 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
-                          <span className="text-2xs font-bold text-slate-400 uppercase block">Soft Skills</span>
+                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
+                          <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase block">
+                            {t("skills.soft")}
+                          </span>
                           <div className="flex flex-wrap gap-1">
                             {data.skills.soft.length === 0 ? (
-                              <span className="text-xs text-slate-400 italic">None added</span>
+                              <span className="text-xs text-slate-400 dark:text-slate-500 italic">None</span>
                             ) : (
                               data.skills.soft.map((s, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-emerald-50 text-emerald-800 font-medium border border-emerald-100">
+                                <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-medium border border-emerald-100 dark:border-emerald-800/60">
                                   {s}
                                 </span>
                               ))
@@ -1132,35 +1441,35 @@ export default function App() {
                     </div>
 
                     {/* Languages */}
-                    <div className="space-y-1 pt-2 border-t border-slate-100">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                        Languages
+                    <div className="space-y-1 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        {t("langSec.title")}
                       </span>
                       {data.languages.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No languages added yet.</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic">{t("langSec.noEntries")}</p>
                       ) : (
-                        <p className="text-xs text-slate-800 font-medium">
+                        <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
                           {data.languages.map((l) => `${l.language || "Language"} (${l.level || "Fluent"})`).join("  •  ")}
                         </p>
                       )}
                     </div>
 
                     {/* Certifications & Courses */}
-                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                        Certifications & Courses
+                    <div className="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                        {t("certs.title")} & {t("courses.title")}
                       </span>
                       {[...data.accreditations, ...data.courses].length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No certifications or courses added yet.</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic">{t("certs.noEntries")}</p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
                           {data.accreditations.map((acc, i) => (
-                            <span key={`acc-${i}`} className="px-2.5 py-1 rounded-lg text-xs bg-white border border-slate-200 text-slate-800">
+                            <span key={`acc-${i}`} className="px-2.5 py-1 rounded-lg text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
                               <strong>{acc.name}</strong> {acc.issuer && `— ${acc.issuer}`}
                             </span>
                           ))}
                           {data.courses.map((c, i) => (
-                            <span key={`c-${i}`} className="px-2.5 py-1 rounded-lg text-xs bg-white border border-slate-200 text-slate-800">
+                            <span key={`c-${i}`} className="px-2.5 py-1 rounded-lg text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
                               {c.name} {c.provider && `— ${c.provider}`}
                             </span>
                           ))}
@@ -1177,11 +1486,14 @@ export default function App() {
             {/* ========================================================= */}
             {step === 4 && (
               <div className="space-y-7">
-                {/* 4.1 Projects */}
-                <RepeatableSection
-                  title="Projects"
-                  description="Showcase practical projects demonstrating your technical and analytical capability."
+                {/* Projects */}
+                <ExpandableRepeatableSection
+                  title={t("proj.title")}
+                  description={t("proj.description")}
+                  sectionKey="projects"
                   items={data.projects}
+                  expandedCards={expandedCards}
+                  onToggleExpand={toggleExpandCard}
                   onAdd={() =>
                     addArrayItem("projects", {
                       name: "",
@@ -1191,33 +1503,49 @@ export default function App() {
                     })
                   }
                   onRemove={(i) => removeArrayItem("projects", i)}
-                  addButtonLabel="Add Project"
+                  addButtonLabel={t("proj.add")}
+                  emptyMessage={t("proj.noEntries")}
+                  renderCollapsed={(item) => (
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 text-xs sm:text-sm">
+                      <div>
+                        <strong className="text-slate-900 dark:text-white">{item.name || "Project"}</strong>
+                        {item.technologies && (
+                          <span className="text-slate-500 dark:text-slate-400 dir-ltr font-normal ml-1">
+                            ({item.technologies})
+                          </span>
+                        )}
+                      </div>
+                      {item.link && <span className="text-blue-600 dark:text-blue-400 dir-ltr text-xs truncate">{item.link}</span>}
+                    </div>
+                  )}
                   renderItem={(item, idx) => (
-                    <div className="grid gap-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3.5 sm:grid-cols-2 pt-2">
                       <TextInput
-                        label="Project Name"
+                        label={t("proj.name")}
                         value={item.name}
                         onChange={(v) => updateArrayItem("projects", idx, "name", v)}
-                        placeholder="Customer Churn Prediction"
+                        placeholder={t("proj.namePlaceholder")}
                       />
                       <TextInput
-                        label="Technologies Used"
+                        label={t("proj.technologies")}
+                        dir="ltr"
                         value={item.technologies}
                         onChange={(v) => updateArrayItem("projects", idx, "technologies", v)}
-                        placeholder="Python, Scikit-Learn, Power BI"
+                        placeholder={t("proj.technologiesPlaceholder")}
                       />
                       <TextInput
-                        label="GitHub / Demo URL"
+                        label={t("proj.link")}
+                        dir="ltr"
                         value={item.link}
                         onChange={(v) => updateArrayItem("projects", idx, "link", v)}
-                        placeholder="github.com/user/project"
+                        placeholder={t("proj.linkPlaceholder")}
                         className="sm:col-span-2"
                       />
                       <TextArea
-                        label="Description & Outcomes"
+                        label={t("proj.descriptionLabel")}
                         value={item.description}
                         onChange={(v) => updateArrayItem("projects", idx, "description", v)}
-                        placeholder="Explain problem, architecture, and outcomes..."
+                        placeholder={t("proj.descriptionPlaceholder")}
                         rows={3}
                         className="sm:col-span-2"
                       />
@@ -1225,108 +1553,108 @@ export default function App() {
                   )}
                 />
 
-                {/* 4.2 Comprehensive 11-Section Final Review */}
-                <div className="space-y-4 pt-4 border-t border-slate-200">
+                {/* Comprehensive 11-Section Final Review */}
+                <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
                   <div>
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                      Comprehensive Final Review
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                      {t("step4.finalReviewTitle")}
                     </h2>
-                    <p className="text-xs text-slate-500">
-                      Verify your complete CV information before submission. Click "Edit" on any section to make updates.
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {t("step4.finalReviewSubtitle")}
                     </p>
                   </div>
 
                   <div className="grid gap-3">
-                    {/* Personal Info Review */}
-                    <ReviewCard title="1. Personal Information" onEdit={() => setStep(1)}>
+                    {/* 1. Personal Info */}
+                    <ReviewCard title={t("rev.personal")} onEdit={() => handleJumpToStep(1)} editLabel={t("action.edit")}>
                       <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
                         <div>
-                          <span className="text-2xs uppercase font-bold text-slate-400 block">Name</span>
-                          <span className="font-semibold text-slate-900">{data.personal.fullName || "—"}</span>
+                          <span className="text-2xs uppercase font-bold text-slate-400 dark:text-slate-500 block">{t("step1.fullName")}</span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{data.personal.fullName || "—"}</span>
                         </div>
                         <div>
-                          <span className="text-2xs uppercase font-bold text-slate-400 block">Target Role</span>
-                          <span className="font-semibold text-slate-900">{data.personal.targetTitle || "—"}</span>
+                          <span className="text-2xs uppercase font-bold text-slate-400 dark:text-slate-500 block">{t("step1.targetTitle")}</span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{data.personal.targetTitle || "—"}</span>
                         </div>
                         <div>
-                          <span className="text-2xs uppercase font-bold text-slate-400 block">Email</span>
-                          <span className="text-slate-700">{data.personal.email || "—"}</span>
+                          <span className="text-2xs uppercase font-bold text-slate-400 dark:text-slate-500 block">{t("step1.email")}</span>
+                          <span className="text-slate-700 dark:text-slate-300 dir-ltr text-left rtl:text-right">{data.personal.email || "—"}</span>
                         </div>
                         <div>
-                          <span className="text-2xs uppercase font-bold text-slate-400 block">Phone</span>
-                          <span className="text-slate-700">{data.personal.phone || "—"}</span>
+                          <span className="text-2xs uppercase font-bold text-slate-400 dark:text-slate-500 block">{t("step1.phone")}</span>
+                          <span className="text-slate-700 dark:text-slate-300 dir-ltr text-left rtl:text-right">{data.personal.phone || "—"}</span>
                         </div>
                       </div>
                     </ReviewCard>
 
-                    {/* Summary Review */}
-                    <ReviewCard title="2. Professional Summary" onEdit={() => setStep(1)}>
-                      <p className="text-xs sm:text-sm text-slate-700 whitespace-pre-line leading-relaxed">
-                        {data.personal.summary || <span className="italic text-slate-400">No summary provided</span>}
+                    {/* 2. Summary */}
+                    <ReviewCard title={t("rev.summary")} onEdit={() => handleJumpToStep(1)} editLabel={t("action.edit")}>
+                      <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line leading-relaxed">
+                        {data.personal.summary || <span className="italic text-slate-400 dark:text-slate-500">{t("step1.noSummary")}</span>}
                       </p>
                     </ReviewCard>
 
-                    {/* Education Review */}
-                    <ReviewCard title="3. Education" onEdit={() => setStep(2)}>
+                    {/* 3. Education */}
+                    <ReviewCard title={t("rev.education")} onEdit={() => handleJumpToStep(2)} editLabel={t("action.edit")}>
                       {data.education.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No education recorded</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("edu.noEntries")}</span>
                       ) : (
                         <div className="space-y-1 text-xs sm:text-sm">
                           {data.education.map((e, i) => (
                             <div key={i}>
-                              <strong className="text-slate-900">{e.degree} in {e.fieldOfStudy || "General"}</strong> — {e.institution} ({e.startDate} – {e.endDate})
+                              <strong className="text-slate-900 dark:text-white">{e.degree} in {e.fieldOfStudy || "General"}</strong> — {e.institution} <span className="dir-ltr">({e.startDate} – {e.endDate})</span>
                             </div>
                           ))}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Experience Review */}
-                    <ReviewCard title="4. Work Experience" onEdit={() => setStep(2)}>
+                    {/* 4. Experience */}
+                    <ReviewCard title={t("rev.experience")} onEdit={() => handleJumpToStep(2)} editLabel={t("action.edit")}>
                       {data.experience.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No work experience listed</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("exp.noEntries")}</span>
                       ) : (
                         <div className="space-y-1.5 text-xs sm:text-sm">
                           {data.experience.map((exp, i) => (
                             <div key={i}>
-                              <strong className="text-slate-900">{exp.jobTitle} at {exp.company}</strong> ({exp.startDate} – {exp.current ? "Present" : exp.endDate})
+                              <strong className="text-slate-900 dark:text-white">{exp.jobTitle} at {exp.company}</strong> <span className="dir-ltr">({exp.startDate} – {exp.current ? "Present" : exp.endDate})</span>
                             </div>
                           ))}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Internships Review */}
-                    <ReviewCard title="5. Internships" onEdit={() => setStep(2)}>
+                    {/* 5. Internships */}
+                    <ReviewCard title={t("rev.internships")} onEdit={() => handleJumpToStep(2)} editLabel={t("action.edit")}>
                       {data.internships.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No internships listed</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("intern.noEntries")}</span>
                       ) : (
                         <div className="space-y-1 text-xs sm:text-sm">
                           {data.internships.map((item, i) => (
                             <div key={i}>
-                              <strong className="text-slate-900">{item.title} at {item.company}</strong> ({item.startDate} – {item.endDate})
+                              <strong className="text-slate-900 dark:text-white">{item.title} at {item.company}</strong> <span className="dir-ltr">({item.startDate} – {item.endDate})</span>
                             </div>
                           ))}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Skills Review */}
-                    <ReviewCard title="6. Skills & Tools" onEdit={() => setStep(3)}>
+                    {/* 6. Skills */}
+                    <ReviewCard title={t("rev.skills")} onEdit={() => handleJumpToStep(3)} editLabel={t("action.edit")}>
                       <div className="flex flex-wrap gap-1.5">
                         {[
                           ...data.skills.technical,
                           ...data.skills.tools,
                           ...data.skills.soft,
                         ].length === 0 ? (
-                          <span className="text-xs text-slate-400 italic">No skills added</span>
+                          <span className="text-xs text-slate-400 dark:text-slate-500 italic">None added</span>
                         ) : (
                           [
                             ...data.skills.technical,
                             ...data.skills.tools,
                             ...data.skills.soft,
                           ].map((s, i) => (
-                            <span key={i} className="px-2.5 py-0.5 rounded-full text-xs bg-slate-100 text-slate-800 font-medium border border-slate-200">
+                            <span key={i} className="px-2.5 py-0.5 rounded-full text-xs bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium border border-slate-200 dark:border-slate-700 dir-ltr">
                               {s}
                             </span>
                           ))
@@ -1334,64 +1662,64 @@ export default function App() {
                       </div>
                     </ReviewCard>
 
-                    {/* Languages Review */}
-                    <ReviewCard title="7. Languages" onEdit={() => setStep(3)}>
+                    {/* 7. Languages */}
+                    <ReviewCard title={t("rev.languages")} onEdit={() => handleJumpToStep(3)} editLabel={t("action.edit")}>
                       {data.languages.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No languages listed</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("langSec.noEntries")}</span>
                       ) : (
-                        <div className="text-xs sm:text-sm text-slate-700">
+                        <div className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                           {data.languages.map((l) => `${l.language} (${l.level})`).join("  •  ")}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Courses Review */}
-                    <ReviewCard title="8. Courses & Training" onEdit={() => setStep(3)}>
+                    {/* 8. Courses */}
+                    <ReviewCard title={t("rev.courses")} onEdit={() => handleJumpToStep(3)} editLabel={t("action.edit")}>
                       {data.courses.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No courses recorded</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("courses.noEntries")}</span>
                       ) : (
                         <div className="space-y-1 text-xs sm:text-sm">
                           {data.courses.map((c, i) => (
-                            <div key={i}>{c.name} — {c.provider} ({c.date})</div>
+                            <div key={i}>{c.name} — {c.provider} <span className="dir-ltr">({c.date})</span></div>
                           ))}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Certifications Review */}
-                    <ReviewCard title="9. Certifications" onEdit={() => setStep(3)}>
+                    {/* 9. Certifications */}
+                    <ReviewCard title={t("rev.certs")} onEdit={() => handleJumpToStep(3)} editLabel={t("action.edit")}>
                       {data.accreditations.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No certifications listed</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("certs.noEntries")}</span>
                       ) : (
                         <div className="space-y-1 text-xs sm:text-sm">
                           {data.accreditations.map((acc, i) => (
-                            <div key={i}><strong>{acc.name}</strong> — {acc.issuer} ({acc.date})</div>
+                            <div key={i}><strong>{acc.name}</strong> — {acc.issuer} <span className="dir-ltr">({acc.date})</span></div>
                           ))}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Achievements Review */}
-                    <ReviewCard title="10. Achievements" onEdit={() => setStep(3)}>
+                    {/* 10. Achievements */}
+                    <ReviewCard title={t("rev.achievements")} onEdit={() => handleJumpToStep(3)} editLabel={t("action.edit")}>
                       {data.achievements.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No achievements listed</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("achieve.noEntries")}</span>
                       ) : (
                         <div className="space-y-1 text-xs sm:text-sm">
                           {data.achievements.map((a, i) => (
-                            <div key={i}><strong>{a.title}</strong> ({a.date})</div>
+                            <div key={i}><strong>{a.title}</strong> <span className="dir-ltr">({a.date})</span></div>
                           ))}
                         </div>
                       )}
                     </ReviewCard>
 
-                    {/* Projects Review */}
-                    <ReviewCard title="11. Projects" onEdit={() => setStep(4)}>
+                    {/* 11. Projects */}
+                    <ReviewCard title={t("rev.projects")} onEdit={() => handleJumpToStep(4)} editLabel={t("action.edit")}>
                       {data.projects.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No projects listed</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">{t("proj.noEntries")}</span>
                       ) : (
                         <div className="space-y-1 text-xs sm:text-sm">
                           {data.projects.map((p, i) => (
-                            <div key={i}><strong>{p.name}</strong> ({p.technologies})</div>
+                            <div key={i}><strong>{p.name}</strong> <span className="dir-ltr">({p.technologies})</span></div>
                           ))}
                         </div>
                       )}
@@ -1401,19 +1729,16 @@ export default function App() {
               </div>
             )}
 
-            {/* Bottom Form Navigation Buttons */}
-            <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
+            {/* 3. BOTTOM WORKSPACE NAVIGATION */}
+            <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
               {step > 1 ? (
                 <Button
                   variant="secondary"
                   size="md"
-                  onClick={() => {
-                    setStep((s) => Math.max(1, s - 1));
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
+                  onClick={handlePrevStep}
                   disabled={submitting}
                 >
-                  ← Back
+                  {dir === "rtl" ? "→" : "←"} {t("action.back")}
                 </Button>
               ) : (
                 <div />
@@ -1423,12 +1748,9 @@ export default function App() {
                 <Button
                   variant="primary"
                   size="md"
-                  onClick={() => {
-                    setStep((s) => Math.min(4, s + 1));
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
+                  onClick={handleNextStep}
                 >
-                  Continue →
+                  {t("action.continue")} {dir === "rtl" ? "←" : "→"}
                 </Button>
               ) : (
                 <Button
@@ -1437,7 +1759,7 @@ export default function App() {
                   type="submit"
                   loading={submitting}
                 >
-                  Submit CV Information
+                  {submitting ? t("action.submitting") : t("action.submit")}
                 </Button>
               )}
             </div>
@@ -1448,21 +1770,28 @@ export default function App() {
   );
 }
 
-function RepeatableSection({
+function ExpandableRepeatableSection({
   title,
   description,
+  sectionKey,
   items,
+  expandedCards,
+  onToggleExpand,
   onAdd,
   onRemove,
   addButtonLabel,
+  emptyMessage,
+  renderCollapsed,
   renderItem,
 }) {
+  const { t } = useLanguage();
+
   return (
     <div className="space-y-3.5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-100 dark:border-slate-800">
         <div>
-          <h2 className="text-base sm:text-lg font-bold text-slate-900">{title}</h2>
-          <p className="text-xs sm:text-sm text-slate-500">{description}</p>
+          <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">{description}</p>
         </div>
         <Button variant="secondary" size="sm" onClick={onAdd}>
           + {addButtonLabel}
@@ -1470,42 +1799,78 @@ function RepeatableSection({
       </div>
 
       {items.length === 0 ? (
-        <div className="p-5 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 space-y-2">
-          <p className="text-xs sm:text-sm text-slate-500">No {title.toLowerCase()} added yet.</p>
+        <div className="p-5 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">{emptyMessage}</p>
           <Button variant="secondary" size="sm" onClick={onAdd}>
             + {addButtonLabel}
           </Button>
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((item, idx) => (
-            <div
-              key={idx}
-              className="p-4 rounded-xl border border-slate-200 bg-slate-50/40 space-y-3 relative shadow-2xs"
-            >
-              <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  {title} #{idx + 1}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onRemove(idx)}
-                  className="text-xs font-semibold text-rose-600 hover:text-rose-800 transition cursor-pointer"
-                >
-                  Remove
-                </button>
-              </div>
+          {items.map((item, idx) => {
+            const cardKey = `${sectionKey}-${idx}`;
+            const isExpanded = Boolean(expandedCards[cardKey]);
 
-              {renderItem(item, idx)}
-            </div>
-          ))}
+            return (
+              <div
+                key={idx}
+                className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/40 p-4 space-y-3 shadow-2xs transition-all duration-150"
+              >
+                {/* Header Row */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+                      {title} #{idx + 1}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => onToggleExpand(cardKey)}
+                      className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      {isExpanded ? t("action.collapse") : t("action.expand")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRemove(idx)}
+                      className="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-800 dark:hover:text-rose-300 transition cursor-pointer"
+                    >
+                      {t("action.remove")}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Collapsed Summary vs Expanded Editor */}
+                {isExpanded ? (
+                  renderItem(item, idx)
+                ) : (
+                  renderCollapsed(item)
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function SkillManager({ title, category, skills, suggestions, onAdd, onRemove }) {
+function SkillManager({
+  title,
+  category,
+  skills = [],
+  suggestions = [],
+  onAdd,
+  onRemove,
+  placeholder,
+  addLabel,
+  activeLabel,
+  suggestionsLabel,
+  countLabel,
+  emptyHelper,
+}) {
   const [draft, setDraft] = useState("");
 
   const handleAdd = () => {
@@ -1514,33 +1879,33 @@ function SkillManager({ title, category, skills, suggestions, onAdd, onRemove })
   };
 
   return (
-    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/40 space-y-3 shadow-2xs">
+    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/40 space-y-3.5 shadow-2xs">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm sm:text-base font-bold text-slate-900">{title}</h3>
-        <span className="text-2xs font-bold text-slate-400 uppercase tracking-wider">
-          {skills.length} Selected
+        <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">{title}</h3>
+        <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+          {countLabel}
         </span>
       </div>
 
-      {/* Selected Skills Block */}
-      <div className="min-h-[38px] p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
-        <span className="text-2xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
-          Active Skills
+      {/* Active Skills Block */}
+      <div className="min-h-[42px] p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
+        <span className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+          {activeLabel}
         </span>
         {skills.length === 0 ? (
-          <span className="text-xs text-slate-400 italic">No skills selected. Type below or click suggestions.</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500 italic">{emptyHelper}</span>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {skills.map((s, idx) => (
               <span
                 key={idx}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-200 shadow-2xs"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shadow-2xs dir-ltr"
               >
                 <span>{s}</span>
                 <button
                   type="button"
                   onClick={() => onRemove(category, s)}
-                  className="text-blue-400 hover:text-rose-600 font-bold leading-none cursor-pointer text-sm"
+                  className="text-blue-400 hover:text-rose-600 dark:hover:text-rose-400 font-bold leading-none cursor-pointer text-sm"
                   aria-label={`Remove ${s}`}
                 >
                   ×
@@ -1551,7 +1916,7 @@ function SkillManager({ title, category, skills, suggestions, onAdd, onRemove })
         )}
       </div>
 
-      {/* Custom Input */}
+      {/* Input */}
       <div className="flex gap-2">
         <input
           type="text"
@@ -1563,31 +1928,31 @@ function SkillManager({ title, category, skills, suggestions, onAdd, onRemove })
               handleAdd();
             }
           }}
-          placeholder="Type custom skill..."
-          className="flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 shadow-2xs"
+          placeholder={placeholder}
+          className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-600 dark:focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/40 shadow-2xs"
         />
         <Button variant="secondary" size="md" onClick={handleAdd} disabled={!draft.trim()}>
-          Add
+          {addLabel}
         </Button>
       </div>
 
-      {/* Secondary Suggestion Chips */}
+      {/* Quick Secondary Suggestions */}
       <div className="space-y-1.5 pt-1">
-        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 block">
-          Quick Suggestions
+        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
+          {suggestionsLabel}
         </span>
         <div className="flex flex-wrap gap-1.5">
           {suggestions.map((s, idx) => {
-            const isSelected = skills.includes(s);
+            const isSelected = skills.some((sk) => sk.toLowerCase() === s.toLowerCase());
             return (
               <button
                 key={idx}
                 type="button"
                 onClick={() => (isSelected ? onRemove(category, s) : onAdd(category, s))}
-                className={`px-2.5 py-1 rounded-full text-xs transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-full text-xs transition cursor-pointer dir-ltr ${
                   isSelected
                     ? "bg-blue-600 text-white font-semibold shadow-2xs border border-blue-600"
-                    : "bg-white text-slate-600 border border-dashed border-slate-300 hover:border-blue-400 hover:text-blue-700"
+                    : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400"
                 }`}
               >
                 {isSelected ? "✓ " : "+ "}
@@ -1602,17 +1967,19 @@ function SkillManager({ title, category, skills, suggestions, onAdd, onRemove })
 }
 
 function InlineReviewSection({ title, subtitle, children }) {
+  const { t } = useLanguage();
+
   return (
-    <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-3.5">
-      <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+    <div className="mt-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-4 sm:p-5 space-y-3.5">
+      <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700/80">
         <div>
-          <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
             {title}
           </h3>
-          {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
+          {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
         </div>
-        <span className="text-2xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-          Live Preview
+        <span className="text-2xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+          {t("action.livePreview")}
         </span>
       </div>
       {children}
@@ -1620,17 +1987,17 @@ function InlineReviewSection({ title, subtitle, children }) {
   );
 }
 
-function ReviewCard({ title, onEdit, children }) {
+function ReviewCard({ title, onEdit, editLabel, children }) {
   return (
-    <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2 shadow-2xs">
-      <div className="flex items-center justify-between pb-1 border-b border-slate-100">
-        <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wide">{title}</h3>
+    <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2 shadow-2xs">
+      <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+        <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wide">{title}</h3>
         <button
           type="button"
           onClick={onEdit}
-          className="text-xs font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+          className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
         >
-          Edit
+          {editLabel}
         </button>
       </div>
       {children}

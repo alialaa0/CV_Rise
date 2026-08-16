@@ -14,21 +14,21 @@ export default function Modal({ isOpen = true, onClose, title, description = nul
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
-        className={`w-full ${maxWidth} bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]`}
+        className={`w-full ${maxWidth} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh] text-slate-900 dark:text-slate-100`}
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex items-start justify-between p-5 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-start justify-between p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-            {description && <p className="text-xs text-slate-500 mt-1">{description}</p>}
+            <h2 className="text-base font-bold text-slate-950 dark:text-white tracking-tight">{title}</h2>
+            {description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{description}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
