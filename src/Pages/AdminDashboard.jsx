@@ -1,65 +1,50 @@
-import { useEffect, useMemo, useState } from "react";
-
+import React, { useEffect, useMemo, useState } from "react";
 import { getSubmissions } from "../services/adminService";
-
-const STATUS_LABELS = {
-  new: "Pending Review",
-  processing: "Processing",
-  ai_generated: "AI Ready",
-  in_review: "In Review",
-  ready_to_send: "Ready to Send",
-  sent: "Sent",
-  ai_failed: "AI Failed",
-};
-
-const STATUS_STYLES = {
-  new: "border-amber-200 bg-amber-50 text-amber-800",
-  processing: "border-slate-200 bg-slate-100 text-slate-700",
-  ai_generated: "border-violet-200 bg-violet-50 text-violet-800",
-  in_review: "border-blue-200 bg-blue-50 text-blue-800",
-  ready_to_send: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  sent: "border-slate-800 bg-slate-900 text-white",
-  ai_failed: "border-rose-200 bg-rose-50 text-rose-800",
-};
+import { logoutAdmin } from "../services/authService";
+import Badge from "../components/ui/Badge";
+import Button from "../components/ui/Button";
 
 const FILTERS = [
-  { key: "all", label: "All", statuses: null },
-  { key: "pending", label: "Pending", statuses: ["new", "processing", "ai_generated", "ai_failed"] },
+  { key: "all", label: "All Submissions", statuses: null },
+  {
+    key: "pending",
+    label: "Pending Review",
+    statuses: ["new", "processing", "ai_generated", "ai_failed"],
+  },
   { key: "in_review", label: "In Review", statuses: ["in_review"] },
   { key: "ready", label: "Ready to Send", statuses: ["ready_to_send"] },
   { key: "sent", label: "Sent", statuses: ["sent"] },
 ];
 
 const SORTS = [
-  { key: "newest", label: "Newest" },
-  { key: "oldest", label: "Oldest" },
+  { key: "newest", label: "Newest First" },
+  { key: "oldest", label: "Oldest First" },
   { key: "candidate", label: "Candidate Name" },
   { key: "status", label: "Status" },
 ];
 
-export default function AdminDashboard({ onOpenSubmission }) {
+export default function AdminDashboard({ onOpenSubmission, adminUser, onLogout }) {
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [sort, setSort] = useState("newest");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [activeSort, setActiveSort] = useState("newest");
 
-  async function loadSubmissions({ refresh = false } = {}) {
+  async function loadData(isRefresh = false) {
     try {
-      if (refresh) {
+      if (isRefresh) {
         setRefreshing(true);
       } else {
         setLoading(true);
       }
       setError("");
-
       const data = await getSubmissions();
       setSubmissions(data);
     } catch (err) {
-      console.error(err);
-      setError("Failed to load submissions.");
+      console.error("Failed to fetch admin submissions:", err);
+      setError("Failed to load candidate submissions. Please verify your administrative session.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -67,395 +52,393 @@ export default function AdminDashboard({ onOpenSubmission }) {
   }
 
   useEffect(() => {
-    loadSubmissions();
+    loadData();
   }, []);
 
-  const enrichedSubmissions = useMemo(
-    () => submissions.map((submission) => ({
-      ...submission,
-      profile: getSubmissionProfile(submission),
-    })),
-    [submissions]
-  );
+  const handleLogout = async () => {
+    try {
+      await logoutAdmin();
+      if (onLogout) onLogout();
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
+
+  const enrichedSubmissions = useMemo(() => {
+    return submissions.map((sub) => {
+      const rawP = sub.rawData?.personal || {};
+      const aiP = sub.aiData?.personal || {};
+      const finP = sub.finalData?.personal || {};
+      const p = { ...rawP, ...aiP, ...finP };
+
+      const firstExp =
+        sub.finalData?.experience?.[0] ||
+        sub.aiData?.experience?.[0] ||
+        sub.rawData?.experience?.[0] ||
+        {};
+
+      return {
+        ...sub,
+        profile: {
+          name: p.fullName || "Unnamed Candidate",
+          email: p.email || "No email",
+          targetTitle: p.targetTitle || "—",
+          company: firstExp.company || "",
+        },
+      };
+    });
+  }, [submissions]);
 
   const kpis = useMemo(() => {
     const total = enrichedSubmissions.length;
+    const pending = enrichedSubmissions.filter((s) =>
+      ["new", "processing", "ai_generated", "ai_failed"].includes(s.status)
+    ).length;
+    const inReview = enrichedSubmissions.filter((s) => s.status === "in_review").length;
+    const ready = enrichedSubmissions.filter((s) => s.status === "ready_to_send").length;
+    const sent = enrichedSubmissions.filter((s) => s.status === "sent").length;
 
     return [
-      {
-        label: "Total Submissions",
-        value: total,
-        accent: "border-blue-200 bg-blue-50 text-blue-800",
-      },
-      {
-        label: "Pending Review",
-        value: countByStatuses(enrichedSubmissions, FILTERS[1].statuses),
-        accent: "border-amber-200 bg-amber-50 text-amber-800",
-      },
-      {
-        label: "In Review",
-        value: countByStatuses(enrichedSubmissions, ["in_review"]),
-        accent: "border-violet-200 bg-violet-50 text-violet-800",
-      },
-      {
-        label: "Ready to Send",
-        value: countByStatuses(enrichedSubmissions, ["ready_to_send"]),
-        accent: "border-emerald-200 bg-emerald-50 text-emerald-800",
-      },
-      {
-        label: "Sent",
-        value: countByStatuses(enrichedSubmissions, ["sent"]),
-        accent: "border-slate-200 bg-slate-100 text-slate-800",
-      },
+      { label: "Total Submissions", value: total, color: "text-slate-900" },
+      { label: "Pending Review", value: pending, color: "text-amber-700" },
+      { label: "In Review", value: inReview, color: "text-blue-700" },
+      { label: "Ready to Send", value: ready, color: "text-emerald-700" },
+      { label: "Sent", value: sent, color: "text-slate-700" },
     ];
   }, [enrichedSubmissions]);
 
-  const visibleSubmissions = useMemo(() => {
-    const cleanQuery = query.trim().toLowerCase();
-    const filterConfig = FILTERS.find((item) => item.key === filter) || FILTERS[0];
+  const filteredSubmissions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const currentFilterObj = FILTERS.find((f) => f.key === activeFilter) || FILTERS[0];
 
     return enrichedSubmissions
-      .filter((submission) => {
-        if (!filterConfig.statuses) {
-          return true;
-        }
-
-        return filterConfig.statuses.includes(submission.status);
+      .filter((sub) => {
+        if (!currentFilterObj.statuses) return true;
+        return currentFilterObj.statuses.includes(sub.status);
       })
-      .filter((submission) => {
-        if (!cleanQuery) {
-          return true;
-        }
-
-        return [
-          submission.profile.name,
-          submission.profile.email,
-          submission.profile.targetTitle,
-          submission.profile.company,
-        ].some((value) => value.toLowerCase().includes(cleanQuery));
+      .filter((sub) => {
+        if (!q) return true;
+        return (
+          sub.profile.name.toLowerCase().includes(q) ||
+          sub.profile.email.toLowerCase().includes(q) ||
+          sub.profile.targetTitle.toLowerCase().includes(q) ||
+          sub.profile.company.toLowerCase().includes(q)
+        );
       })
-      .sort((first, second) => sortSubmissions(first, second, sort));
-  }, [enrichedSubmissions, filter, query, sort]);
+      .sort((a, b) => {
+        if (activeSort === "oldest") {
+          return getDateTimestamp(a.createdAt) - getDateTimestamp(b.createdAt);
+        }
+        if (activeSort === "candidate") {
+          return a.profile.name.localeCompare(b.profile.name);
+        }
+        if (activeSort === "status") {
+          return String(a.status || "").localeCompare(String(b.status || ""));
+        }
+        return getDateTimestamp(b.createdAt) - getDateTimestamp(a.createdAt);
+      });
+  }, [enrichedSubmissions, activeFilter, searchQuery, activeSort]);
 
   if (loading) {
-    return <DashboardSkeleton />;
-  }
-
-  if (error) {
     return (
-      <DashboardShell>
-        <div className="mx-auto flex min-h-[70vh] max-w-xl items-center justify-center p-6">
-          <div className="w-full rounded-lg border border-rose-200 bg-white p-6 text-center shadow-sm">
-            <h1 className="text-lg font-semibold text-slate-950">Could not load submissions</h1>
-            <p className="mt-2 text-sm text-slate-500">{error}</p>
-            <button
-              type="button"
-              onClick={() => loadSubmissions()}
-              className="mt-5 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              Retry
-            </button>
+      <div className="min-h-screen bg-slate-50 p-6 sm:p-8">
+        <div className="max-w-7xl mx-auto space-y-5 animate-pulse">
+          <div className="h-7 w-40 bg-slate-200 rounded-lg" />
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-16 bg-slate-200 rounded-xl" />
+            ))}
           </div>
+          <div className="h-80 bg-slate-200 rounded-xl" />
         </div>
-      </DashboardShell>
+      </div>
     );
   }
 
   return (
-    <DashboardShell>
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
-        <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">CV Rise</p>
-            <h1 className="mt-1 text-3xl font-semibold text-slate-950">Admin Workspace</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500">
-              Review candidate submissions, track readiness, and open each CV workflow.
-            </p>
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
+      {/* Top Navigation */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+              CV
+            </div>
+            <div>
+              <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-none">
+                CV Rise
+              </h1>
+              <p className="text-xs text-slate-500 font-medium">Administrator Workspace</p>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="relative block">
-              <span className="sr-only">Search submissions</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search name, email, target, company"
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-80"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() => loadSubmissions({ refresh: true })}
-              disabled={refreshing}
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          <div className="flex items-center gap-3">
+            {adminUser && (
+              <span className="hidden sm:inline-block text-xs text-slate-600 font-medium border-r border-slate-200 pr-3">
+                {adminUser.email}
+              </span>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => loadData(true)}
+              loading={refreshing}
             >
-              {refreshing ? "Refreshing..." : "Refresh"}
-            </button>
+              Refresh
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="text-rose-600 hover:text-rose-800 hover:bg-rose-50"
+            >
+              Logout
+            </Button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {kpis.map((kpi) => (
-            <KpiCard key={kpi.label} kpi={kpi} />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 space-y-5">
+        {/* KPI Metrics Banner */}
+        <section className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {kpis.map((kpi, idx) => (
+            <div
+              key={idx}
+              className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs space-y-0.5"
+            >
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider truncate">
+                {kpi.label}
+              </div>
+              <div className={`text-2xl font-bold tracking-tight ${kpi.color}`}>
+                {kpi.value}
+              </div>
+            </div>
           ))}
         </section>
 
-        <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap gap-2">
-              {FILTERS.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setFilter(item.key)}
-                  className={`rounded-md border px-3 py-2 text-sm font-semibold ${
-                    filter === item.key
-                      ? "border-blue-200 bg-blue-50 text-blue-800"
-                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              Sort
-              <select
-                value={sort}
-                onChange={(event) => setSort(event.target.value)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                {SORTS.map((item) => (
-                  <option key={item.key} value={item.key}>{item.label}</option>
+        {/* Workspace Card */}
+        <section className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+          {/* Controls Bar */}
+          <div className="p-3.5 sm:p-4 border-b border-slate-200 bg-slate-50/50 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {FILTERS.map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setActiveFilter(f.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      activeFilter === f.key
+                        ? "bg-blue-600 text-white shadow-2xs"
+                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+
+              {/* Search & Sort */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search candidate, email, title..."
+                    className="w-full sm:w-60 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-100"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={activeSort}
+                  onChange={(e) => setActiveSort(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-blue-600 focus:outline-none"
+                  aria-label="Sort submissions"
+                >
+                  {SORTS.map((s) => (
+                    <option key={s.key} value={s.key}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
 
-          {visibleSubmissions.length === 0 ? (
-            <EmptyState query={query} />
+          {/* Submissions Data View */}
+          {error ? (
+            <div className="p-8 text-center space-y-3">
+              <p className="text-sm text-rose-600 font-medium">{error}</p>
+              <Button variant="secondary" size="sm" onClick={() => loadData()}>
+                Retry
+              </Button>
+            </div>
+          ) : filteredSubmissions.length === 0 ? (
+            <div className="p-10 text-center space-y-1.5">
+              <p className="text-sm font-semibold text-slate-800">
+                {searchQuery ? "No matching submissions found" : "No submissions in this view"}
+              </p>
+              <p className="text-xs text-slate-500">
+                {searchQuery
+                  ? "Try adjusting your search keyword or active filter."
+                  : "Candidate submissions will appear here once submitted."}
+              </p>
+            </div>
           ) : (
             <>
-              <div className="hidden overflow-x-auto lg:block">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
                     <tr>
-                      <th className="px-5 py-3">Candidate</th>
-                      <th className="px-5 py-3">Target Position</th>
-                      <th className="px-5 py-3">Submission Date</th>
-                      <th className="px-5 py-3">Status</th>
-                      <th className="px-5 py-3">Reviewer</th>
-                      <th className="px-5 py-3">Last Updated</th>
-                      <th className="px-5 py-3 text-right">Action</th>
+                      <th className="px-4 py-3">Candidate</th>
+                      <th className="px-4 py-3">Target Position</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Reviewer</th>
+                      <th className="px-4 py-3">Submitted</th>
+                      <th className="px-4 py-3">Last Updated</th>
+                      <th className="px-4 py-3 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {visibleSubmissions.map((submission) => (
-                      <SubmissionRow key={submission.id} submission={submission} onOpenSubmission={onOpenSubmission} />
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredSubmissions.map((sub) => (
+                      <tr
+                        key={sub.id}
+                        className="hover:bg-slate-50/80 transition-colors duration-100"
+                      >
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-slate-900 text-sm">
+                            {sub.profile.name}
+                          </div>
+                          <div className="text-slate-500 text-xs mt-0.5">
+                            {sub.profile.email}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-800 text-xs">
+                            {sub.profile.targetTitle}
+                          </div>
+                          {sub.profile.company && (
+                            <div className="text-slate-400 text-2xs mt-0.5">
+                              {sub.profile.company}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge status={sub.status} />
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 font-medium text-xs">
+                          {sub.reviewerName || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 text-xs">
+                          {formatDisplayDate(sub.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 text-xs">
+                          {formatDisplayDate(sub.updatedAt)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => onOpenSubmission(sub.id)}
+                          >
+                            Open Review
+                          </Button>
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <div className="grid gap-3 p-4 lg:hidden">
-                {visibleSubmissions.map((submission) => (
-                  <SubmissionCard key={submission.id} submission={submission} onOpenSubmission={onOpenSubmission} />
+              {/* Mobile Card List View */}
+              <div className="lg:hidden divide-y divide-slate-100 p-3 space-y-3">
+                {filteredSubmissions.map((sub) => (
+                  <div
+                    key={sub.id}
+                    className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2.5 shadow-2xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-bold text-sm text-slate-900">{sub.profile.name}</h3>
+                        <p className="text-xs text-slate-500">{sub.profile.email}</p>
+                      </div>
+                      <Badge status={sub.status} />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-100 text-slate-600">
+                      <div>
+                        <span className="text-2xs uppercase font-semibold text-slate-400 block">
+                          Target Position
+                        </span>
+                        <span>{sub.profile.targetTitle}</span>
+                      </div>
+                      <div>
+                        <span className="text-2xs uppercase font-semibold text-slate-400 block">
+                          Reviewer
+                        </span>
+                        <span>{sub.reviewerName || "Unassigned"}</span>
+                      </div>
+                      <div>
+                        <span className="text-2xs uppercase font-semibold text-slate-400 block">
+                          Submitted
+                        </span>
+                        <span>{formatDisplayDate(sub.createdAt)}</span>
+                      </div>
+                      <div>
+                        <span className="text-2xs uppercase font-semibold text-slate-400 block">
+                          Updated
+                        </span>
+                        <span>{formatDisplayDate(sub.updatedAt)}</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => onOpenSubmission(sub.id)}
+                    >
+                      Open Review
+                    </Button>
+                  </div>
                 ))}
               </div>
             </>
           )}
         </section>
-      </div>
-    </DashboardShell>
-  );
-}
-
-function DashboardShell({ children }) {
-  return <div className="min-h-screen bg-slate-100 text-slate-900">{children}</div>;
-}
-
-function DashboardSkeleton() {
-  return (
-    <DashboardShell>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <div className="h-8 w-56 rounded bg-slate-200" />
-        <div className="mt-3 h-4 w-96 max-w-full rounded bg-slate-200" />
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="h-28 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="h-3 w-24 rounded bg-slate-200" />
-              <div className="mt-5 h-8 w-14 rounded bg-slate-100" />
-            </div>
-          ))}
-        </div>
-        <div className="mt-6 h-80 rounded-lg border border-slate-200 bg-white shadow-sm" />
-      </div>
-    </DashboardShell>
-  );
-}
-
-function KpiCard({ kpi }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${kpi.accent}`}>
-        {kpi.label}
-      </div>
-      <p className="mt-4 text-3xl font-semibold text-slate-950">{kpi.value}</p>
+      </main>
     </div>
   );
 }
 
-function SubmissionRow({ submission, onOpenSubmission }) {
-  return (
-    <tr className="hover:bg-slate-50">
-      <td className="px-5 py-4">
-        <div className="font-semibold text-slate-950">{submission.profile.name}</div>
-        <div className="mt-1 text-xs text-slate-500">{submission.profile.email}</div>
-      </td>
-      <td className="px-5 py-4 text-slate-700">{submission.profile.targetTitle}</td>
-      <td className="px-5 py-4 text-slate-500">{formatDate(submission.createdAt)}</td>
-      <td className="px-5 py-4"><StatusBadge status={submission.status} /></td>
-      <td className="px-5 py-4 text-slate-600">{submission.reviewerName || "Unassigned"}</td>
-      <td className="px-5 py-4 text-slate-500">{formatDate(submission.updatedAt)}</td>
-      <td className="px-5 py-4 text-right">
-        <button
-          type="button"
-          onClick={() => onOpenSubmission(submission.id)}
-          className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          Open Review
-        </button>
-      </td>
-    </tr>
-  );
+function getDateTimestamp(val) {
+  if (!val) return 0;
+  if (typeof val.toDate === "function") return val.toDate().getTime();
+  if (typeof val.seconds === "number") return val.seconds * 1000;
+  if (val instanceof Date) return val.getTime();
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
-function SubmissionCard({ submission, onOpenSubmission }) {
-  return (
-    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="truncate font-semibold text-slate-950">{submission.profile.name}</h2>
-          <p className="mt-1 truncate text-sm text-slate-500">{submission.profile.email}</p>
-        </div>
-        <StatusBadge status={submission.status} />
-      </div>
+function formatDisplayDate(val) {
+  if (!val) return "—";
+  let d = val;
+  if (typeof val.toDate === "function") d = val.toDate();
+  else if (typeof val.seconds === "number") d = new Date(val.seconds * 1000);
+  else if (!(val instanceof Date)) d = new Date(val);
 
-      <dl className="mt-4 grid gap-3 text-sm">
-        <Meta label="Target" value={submission.profile.targetTitle} />
-        <Meta label="Reviewer" value={submission.reviewerName || "Unassigned"} />
-        <Meta label="Submitted" value={formatDate(submission.createdAt)} />
-        <Meta label="Updated" value={formatDate(submission.updatedAt)} />
-      </dl>
-
-      <button
-        type="button"
-        onClick={() => onOpenSubmission(submission.id)}
-        className="mt-4 w-full rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        Open Review
-      </button>
-    </article>
-  );
-}
-
-function Meta({ label, value }) {
-  return (
-    <div className="flex justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="text-right font-medium text-slate-800">{value || "-"}</dd>
-    </div>
-  );
-}
-
-function EmptyState({ query }) {
-  return (
-    <div className="p-12 text-center">
-      <h2 className="text-lg font-semibold text-slate-950">
-        {query ? "No matching submissions" : "No submissions yet"}
-      </h2>
-      <p className="mt-2 text-sm text-slate-500">
-        {query ? "Try a different search or filter." : "Candidate submissions will appear here when they are created."}
-      </p>
-    </div>
-  );
-}
-
-function StatusBadge({ status }) {
-  return (
-    <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_STYLES[status] || "border-slate-200 bg-slate-100 text-slate-700"}`}>
-      {STATUS_LABELS[status] || status || "Unknown"}
-    </span>
-  );
-}
-
-function getSubmissionProfile(submission) {
-  const rawPersonal = submission.rawData?.personal || {};
-  const aiPersonal = submission.aiData?.personal || {};
-  const finalPersonal = submission.finalData?.personal || {};
-  const personal = { ...rawPersonal, ...aiPersonal, ...finalPersonal };
-  const firstCompany =
-    submission.finalData?.experience?.[0]?.company ||
-    submission.aiData?.experience?.[0]?.company ||
-    submission.rawData?.experience?.[0]?.company ||
-    "";
-
-  return {
-    name: personal.fullName || "Unnamed candidate",
-    email: personal.email || "No email",
-    targetTitle: personal.targetTitle || "-",
-    company: firstCompany,
-  };
-}
-
-function countByStatuses(submissions, statuses) {
-  return submissions.filter((submission) => statuses.includes(submission.status)).length;
-}
-
-function sortSubmissions(first, second, sort) {
-  if (sort === "oldest") {
-    return getDateValue(first.createdAt) - getDateValue(second.createdAt);
-  }
-
-  if (sort === "candidate") {
-    return first.profile.name.localeCompare(second.profile.name);
-  }
-
-  if (sort === "status") {
-    return String(first.status || "").localeCompare(String(second.status || ""));
-  }
-
-  return getDateValue(second.createdAt) - getDateValue(first.createdAt);
-}
-
-function getDateValue(value) {
-  const date = normalizeDate(value);
-  return date ? date.getTime() : 0;
-}
-
-function formatDate(value) {
-  const date = normalizeDate(value);
-  return date ? date.toLocaleDateString() : "-";
-}
-
-function normalizeDate(value) {
-  if (!value) {
-    return null;
-  }
-
-  if (typeof value.toDate === "function") {
-    return value.toDate();
-  }
-
-  if (typeof value.seconds === "number") {
-    return new Date(value.seconds * 1000);
-  }
-
-  if (value instanceof Date) {
-    return value;
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }

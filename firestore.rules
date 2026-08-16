@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Submissions Collection
+    match /submissions/{submissionId} {
+      
+      // 1. Candidate Submission (Create only)
+      // Allows unauthenticated candidate to submit CV data with initial "new" status
+      allow create: if request.resource.data.status == "new"
+                    && request.resource.data.rawData is map
+                    && request.resource.data.aiData == null
+                    && request.resource.data.finalData == null;
+
+      // 2. Admin Operations (Read, Update, Delete)
+      // Server-enforced via Firebase Custom Claims (admin: true) or authorized admin allowlist
+      allow read, update, delete: if request.auth != null 
+                                  && (request.auth.token.admin == true 
+                                      || request.auth.token.email in [
+                                           "alialaaaou@gmail.com",
+                                           "ali@cvrise.com",
+                                           "mahmoud@cvrise.com",
+                                           "hazem@cvrise.com",
+                                           "mo@cvrise.com"
+                                         ]);
+    }
+
+    // Default deny for all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

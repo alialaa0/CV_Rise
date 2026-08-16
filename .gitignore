@@ -27,4 +27,8 @@ dist-ssr
 .env.local
 
 automation/venv/
+automation/serviceAccountKey.json.env
+.env.*
+!.env.example
 automation/serviceAccountKey.json
+serviceAccountKey*.json
